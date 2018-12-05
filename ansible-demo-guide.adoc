@@ -1,0 +1,360 @@
+= Ansible & Ansible Tower basic Demo Guide
+Dennis Deitermann (dennis@redhat.com)
+:scrollbar:
+:data-uri:
+:numbered:
+:icons: font
+
+== Introduction
+
+This guide shows you how to demo Ansible and Ansible Tower for a audience without Ansible & Ansible Tower knowledge.
+
+Your SSH Gateway/bastion host: `control-<GUID>.rhpds.opentlc.com` +
+Your Ansible Tower Webinterface: `https://tower-<GUID>.rhpds.opentlc.com[https://tower-<GUID>.rhpds.opentlc.com^]`
+
+The root(all VMs) & admin(Tower) password is on the https://lab.redhat.partners[Lab Landingpage^].
+
+Feedback please to <dennis@redhat.com>.
+
+== Get startet with some slides
+
+Show some slides for an introduction into Ansible & Ansible Tower. You can use our slides from https://fill.in.the.link.to.the.slides[here^].
+
+== Show Ansible Engine
+
+Login into the bastion host as root and change to the user `ansible`. +
+You will find the root password in the https://lab.redhat.partners[Lab Landingpage^].
+----
+[user@host ~]$ ssh root@control-<GUID>.rhpds.opentlc.com
+
+The authenticity of host 'control-<GUID>.rhpds.opentlc.com (132.145.9.11)' can't be established.
+ECDSA key fingerprint is SHA256:bsDGeuXiG1zpM3RlsN+RlaAPRaDSi6Y/sJoBP2IXNqU.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'control-<GUID>.rhpds.opentlc.com,132.145.9.11' (ECDSA) to the list of known hosts.
+Password: 
+Last login: Fri Nov 30 22:39:27 2018 from ssh.redhat.partners
+
+[root@control-<GUID> ~]# su - ansible
+
+Letzte Anmeldung: Freitag, den 30. November 2018, 22:40:51 CET auf pts/0
+
+[ansible@control-<GUID> ~]$
+----
+
+There you find a directory `ansible-files`. Change into this directory:
+----
+[ansible@control-<GUID> ~]$ cd ansible-files/
+[ansible@control-<GUID> ansible-files]$ 
+----
+
+Show and explain the inventory file:
+----
+[ansible@control-<GUID> ansible-files]$ cat inventory 
+
+[webserver]
+host1.example.com
+
+[database]
+host2.example.com
+
+[ftpserver]
+host2.example.com
+----
+
+Show and explain the playbook `install_apache.yml`:
+----
+[ansible@control-<GUID> ansible-files]$ cat install_apache.yml
+
+---
+- name: Apache server installed
+  hosts: host1.example.com
+  become: yes
+  tasks:
+  - name: latest Apache version installed
+    yum:
+      name: httpd
+      state: latest
+
+
+----
+
+So we want to install apache. SSH into the target host `host1.example.com` and show that the apache RPM is not installed.
+----
+[ansible@control-<GUID> ansible-files]$ ssh host1.example.com
+
+Last login: Fri Nov 30 12:04:28 2018 from tower-<GUID>.rhpds.opentlc.com
+
+[ansible@host1 ~]$ sudo rpm -qa httpd
+
+[ansible@host1 ~]$
+----
+
+As we see, we see nothing. That means no apache is installed on `host1.example.com`.
+
+Exit `host1.example.com` and run the playbook `install_apache.yml`. Explain *Gathering Facts* while the playbooks runs.
+----
+[ansible@host1 ~]$ exit
+
+logout
+Connection to host1.example.com closed.
+
+[ansible@control-<GUID> ansible-files]$ ansible-playbook -i inventory install_apache.yml
+
+PLAY [Apache server installed] *****************************************************************
+
+TASK [Gathering Facts] *************************************************************************
+ok: [host1.example.com]
+
+TASK [latest Apache version installed] *********************************************************
+changed: [host1.example.com]
+
+PLAY RECAP *************************************************************************************
+host1.example.com          : ok=2    changed=1    unreachable=0    failed=0
+----
+
+Rerun the playbook to show the idempotency of ansible. Nothing has changed.
+----
+[ansible@control-<GUID> ansible-files]$ ansible-playbook -i inventory install_apache.yml 
+
+PLAY [Apache server installed] *****************************************************************
+
+TASK [Gathering Facts] *************************************************************************
+ok: [host1.example.com]
+
+TASK [latest Apache version installed] *********************************************************
+ok: [host1.example.com]
+
+PLAY RECAP *************************************************************************************
+host1.example.com          : ok=2    changed=0    unreachable=0    failed=0   
+----
+
+Check if the apache RPM is installed now on `host1.example.com`:
+----
+[ansible@control-<GUID> ansible-files]$ ssh host1.example.com
+
+Last login: Fri Nov 30 22:53:57 2018 from control-<GUID>.rhpds.opentlc.com
+
+[ansible@host1 ~]$ sudo rpm -qa httpd
+httpd-2.4.6-80.el7_5.1.x86_64
+----
+
+Apache is installed, but not activated and has no content. +
+We want to change this now with an other playbook.
+
+Show and explain the `install_apache_extended.yml` playbook. Now with activation of the apache and transfering content to `host1.example.com`.
+----
+[ansible@control-<GUID> ansible-files]$ cat install_apache_extended.yml
+
+---
+- name: Apache server installed
+  hosts: host1.example.com
+  become: yes
+  tasks:
+  - name: latest Apache version installed
+    yum:
+      name: httpd
+      state: latest
+  - name: Apache enabled and running
+    service:
+      name: httpd
+      enabled: true
+      state: started
+  - name: copy index.html
+    copy:
+      src: ~/ansible-files/index.html
+      dest: /var/www/html/
+----
+
+Show that apache is not running.
+----
+[ansible@control-<GUID> ansible-files]$ curl host1.example.com
+
+curl: (7) Failed connect to host1.example.com:80; Connection refused
+----
+
+Run the `install_apache_extended.yml` playbook.
+----
+[ansible@control-<GUID> ansible-files]$ ansible-playbook -i inventory install_apache_extended.yml
+
+PLAY [Apache server installed] *****************************************************************
+
+TASK [Gathering Facts] *************************************************************************
+ok: [host1.example.com]
+
+TASK [latest Apache version installed] *********************************************************
+ok: [host1.example.com]
+
+TASK [Apache enabled and running] **************************************************************
+changed: [host1.example.com]
+
+TASK [copy index.html] *************************************************************************
+changed: [host1.example.com]
+
+PLAY RECAP *************************************************************************************
+host1.example.com          : ok=4    changed=2    unreachable=0    failed=0   
+
+[ansible@control-<GUID> ansible-files]$
+----
+
+Rerun the playbook to show the idempotency of ansible (again). Nothing has changed.
+----
+[ansible@control-<GUID> ansible-files]$ ansible-playbook -i inventory install_apache_extended.yml
+
+PLAY [Apache server installed] *****************************************************************
+
+TASK [Gathering Facts] *************************************************************************
+ok: [host1.example.com]
+
+TASK [latest Apache version installed] *********************************************************
+ok: [host1.example.com]
+
+TASK [Apache enabled and running] **************************************************************
+ok: [host1.example.com]
+
+TASK [copy index.html] *************************************************************************
+ok: [host1.example.com]
+
+PLAY RECAP *************************************************************************************
+host1.example.com          : ok=4    changed=0    unreachable=0    failed=0
+----
+
+Show that apache is now up and running.
+----
+[ansible@control-<GUID> ansible-files]$ curl host1.example.com
+
+<body>
+<h1>Apache is running fine</h1>
+</body>
+----
+
+== Show Ansible Tower
+
+Log into Ansible Tower as `admin` with a Webbrowser.
+
+Your Ansible Tower: https://tower-<GUID>.rhpds.opentlc.com[https://tower-<GUID>.rhpds.opentlc.com^]
+
+image::http://www.rhpet.de/pictures/ansible-demo-guide/Ansible-Tower-Login.png[Ansible Tower]
+
+Explain the Tower Webinterface. You will find all needed informations in the https://docs.ansible.com/ansible-tower/latest/html/userguide/main_menu.html[Ansible Tower documentation^].
+
+Start with the `Dashboard`.
+
+image::http://www.rhpet.de/pictures/ansible-demo-guide/Overview.png[Ansible Tower]
+
+Then click on `Inventory`. This Ansible Tower Demo installation has only a static inventory. Click on the inventory file `Example Inventory` and then on `Hosts`.
+
+image::http://www.rhpet.de/pictures/ansible-demo-guide/Inventory.png[Ansible Tower]
+
+Click on `Credentials` and then on the `Control Git` credential name. +
+Tower needs SSH Keys to access (Linux/Unix) hosts. In Tower the credentials are stored encrypted in the database. This is one of the big differences to Ansible Engine, were every user needs the SSH keys to use ansible. In Tower no one (except super admin) sees the SSH keys.
+
+image::http://www.rhpet.de/pictures/ansible-demo-guide/Credentials.png[Ansible Tower]
+
+Click on `Projects` and the on the name `Control Git Repo`.
+Explain that in Tower we need a version controll system to get the ansible playbooks into tower. Show the different *SCM Types*.
+In this demo we use GIT. Show the path on `control-<GUID>.rhpds.opentlc.com` inside the webinterface *(SCM URL)*.
+
+image::http://www.rhpet.de/pictures/ansible-demo-guide/Projects.png[Ansible Tower]
+
+Change the terminal and login into `control-<GUID>.rhpds.opentlc.com` as `git` and show and explain the install git directory and the `apache.yml` file.
+----
+[ansible@control-<GUID> ansible-files]$ su - git
+
+Password: 
+Last login: Fri Nov 30 12:58:08 CET 2018 on pts/0
+
+[git@control-<GUID> ~]$ cd git-work/
+
+[git@control-<GUID> git-work]$ ll
+total 16
+-rw-rw-r--. 1 git git 694 Nov 30 12:00 apache.yml
+-rw-rw-r--. 1 git git  47 Nov 30 12:01 index.html
+-rw-rw-r--. 1 git git 218 Nov 30 11:02 index_html_create.yml
+-rw-rw-r--. 1 git git 171 Nov 30 11:01 index.j2
+
+[git@control-<GUID> git-work]$ cat apache.yml 
+
+---
+- name: Apache server installed
+  hosts: all
+  tasks:
+  - name: latest Apache version installed
+    yum:
+      name: httpd
+      state: latest
+  - name: latest firewalld version installed
+    yum:
+      name: firewalld
+      state: latest
+  - name: firewalld enabled and running
+    service:
+      name: firewalld
+      enabled: true
+      state: started
+  - name: firewalld permits http service
+    firewalld:
+      service: http
+      permanent: true
+      state: enabled
+      immediate: yes
+  - name: Apache enabled and running
+    service:
+      name: httpd
+      enabled: true
+      state: started
+  - name: copy index.html
+    copy:
+      src: index.html
+      dest: /var/www/html/
+----
+
+Lets start this playbook through Ansible Tower. +
+Click on `Templates` and then on the green `+` button. Select `Job Template`.
+
+- In *Name* fill in `My Template`
+- Select *Job Type* `Run`
+- Click on *search* in the Inventory area and select `Example Inventory`
+- In *Project* select `Control Git Repo`
+- In *Playbook* choose `apache.yml`
+- Click on *search* in *Credentials* and choose `Example Credentials`
+- Click the checkmark at *Enable Privilege Escalation*
+- Click on the green *save* button
+
+image::http://www.rhpet.de/pictures/ansible-demo-guide/Templates.png[Ansible Tower]
+
+Click on the *rocket* in the *Templates/My Template* area tu run the configured playbook.
+
+image::http://www.rhpet.de/pictures/ansible-demo-guide/Templates2.png[Ansible Tower]
+
+And thats it, you successfully showed running a playbook on Ansible Tower :-)
+
+image::http://www.rhpet.de/pictures/ansible-demo-guide/Playbook-run.png[Ansible Tower]
+
+== Reset the Demo
+
+To reset the demo, run as `root` on `control-<GUID>.rhpds.opentlc.com` the playbook `rollback_demo.yml`.
+----
+[root@control-<GUID> ~]# ansible-playbook -i inventory rollback_demo.yml 
+
+PLAY [all] *************************************************************************************
+
+TASK [Delete "My Template" from Tower] *********************************************************
+skipping: [host1.example.com]
+skipping: [host2.example.com]
+changed: [tower.example.com]
+
+TASK [Remove index.html from host1 and host2] **************************************************
+skipping: [tower.example.com]
+changed: [host2.example.com]
+changed: [host1.example.com]
+
+TASK [uninstall packages from host1 and host2] *************************************************
+skipping: [tower.example.com]
+changed: [host2.example.com]
+changed: [host1.example.com]
+
+PLAY RECAP *************************************************************************************
+host1.example.com          : ok=2    changed=2    unreachable=0    failed=0   
+host2.example.com          : ok=2    changed=2    unreachable=0    failed=0   
+tower.example.com          : ok=1    changed=1    unreachable=0    failed=0   
+----
